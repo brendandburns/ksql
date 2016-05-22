@@ -18,11 +18,14 @@ import atexit
 import operator
 import os
 import pykube
+import Queue
 import readline
 import sqlite3
 # alternate sqlite3
 # from pysqlite2 import dbapi2 as sqlite3
 import tabulate
+import threading
+import time
 
 class Kinds:
     pod = "pod"
@@ -30,6 +33,42 @@ class Kinds:
     replication_controller = "replicationController"
     node = "node"
 
+done = False
+
+def handle_query(cursor, query):
+    try:
+        data = []
+        headers = []
+        result = cursor.execute(query)
+        for column in result.description:
+            headers.append(column[0])
+
+        for row in result:
+            rowData = []
+            for field in row:
+                rowData.append(field) 
+            data.append(rowData)
+        print tabulate.tabulate(data, headers, tablefmt='psql')
+    except sqlite3.OperationalError, err:
+        print err
+
+def thread_load(q, resp, api):
+    conn = sqlite3.connect(':memory:')
+    cursor = conn.cursor()
+    create_tables(cursor)
+    load(cursor, api)
+    while not done:
+        try:
+            query = q.get(True, 30)
+            if query == '_done_':
+                continue
+            handle_query(cursor, query)
+            resp.put(True)
+        except Queue.Empty:
+            pass
+        load(cursor, api)
+#        time.sleep(30)
+    
 def setup_history():
     histfile = os.path.join(os.path.expanduser("~"), ".ksql-history")
     try:
@@ -45,38 +84,39 @@ def insert_metadata(cursor, kind, obj):
     uid = obj.obj['metadata']['uid']
     labels = obj.obj['metadata'].get('labels', {})
     for key, value in labels.iteritems():
-        cursor.execute('''INSERT INTO labels (key, value, kind, uid) VALUES (?, ?, ?, ?)''',
+        cursor.execute('''INSERT OR REPLACE INTO labels (key, value, kind, uid) VALUES (?, ?, ?, ?)''',
                        (key, value, kind, uid ))
 
     annotations = obj.obj['metadata'].get('annotations', {})
     for key, value in annotations.iteritems():
-        cursor.execute('''INSERT INTO annotations (key, value, kind, uid) VALUES (?, ?, ?, ?)''',
+        cursor.execute('''INSERT OR REPLACE INTO annotations (key, value, kind, uid) VALUES (?, ?, ?, ?)''',
                        (key, value, kind, uid ))
     
 def load(cursor, api):
+    # TODO: need to handle things getting deleted here
     nodes = pykube.Node.objects(api)
     for node in nodes:
         insert_metadata(cursor, Kinds.node, node)
-        c.execute('''INSERT INTO nodes (uid, name, ip) VALUES(?, ?, ?)''',
-                  (node.obj["metadata"]["uid"],
-                   node.name,
-                   node.obj["status"]["addresses"][0]["address"])) 
+        cursor.execute('''INSERT OR REPLACE INTO nodes (uid, name, ip) VALUES(?, ?, ?)''',
+                       (node.obj["metadata"]["uid"],
+                        node.name,
+                        node.obj["status"]["addresses"][0]["address"])) 
 
     namespaces = pykube.Namespace.objects(api)
     for namespace in namespaces:
-        load_namespace(c, api, namespace.name)
+        load_namespace(cursor, api, namespace.name)
 
 def load_namespace(cursor, api, namespace):
     pods = pykube.Pod.objects(api).filter(namespace=namespace)
     for pod in pods:
-        cursor.execute('''INSERT INTO pods (uid, name, namespace, host) VALUES (?, ?, ?, ?)''',
+        cursor.execute('''INSERT OR REPLACE INTO pods (uid, name, namespace, host) VALUES (?, ?, ?, ?)''',
                        (pod.obj['metadata']['uid'],
                         pod.name,
                         namespace,
                         pod.obj['spec']['nodeName']))
         insert_metadata(cursor, Kinds.pod, pod)
         for ix, container in enumerate(pod.obj['spec']['containers']):
-            cursor.execute('''INSERT INTO containers (name, image, pod_uid, restarts) VALUES (?, ?, ?, ?)''',
+            cursor.execute('''INSERT OR REPLACE INTO containers (name, image, pod_uid, restarts) VALUES (?, ?, ?, ?)''',
                            (container['name'],
                             container['image'],
                             pod.obj['metadata']['uid'],
@@ -84,7 +124,7 @@ def load_namespace(cursor, api, namespace):
             
     svcs = pykube.Service.objects(api).filter(namespace=namespace)
     for svc in svcs:
-        cursor.execute('''INSERT INTO services (uid, name, namespace, ip) VALUES (?, ?, ?, ?)''',
+        cursor.execute('''INSERT OR REPLACE INTO services (uid, name, namespace, ip) VALUES (?, ?, ?, ?)''',
                        (svc.obj['metadata']['uid'],
                         svc.name,
                         namespace,
@@ -93,11 +133,11 @@ def load_namespace(cursor, api, namespace):
                 
     rcs = pykube.ReplicationController.objects(api).filter(namespace=namespace)
     for rc in rcs:
-        cursor.execute('''INSERT INTO replicationcontrollers (uid, name, namespace, replicas) VALUES (?, ?, ?, ?)''',
+        cursor.execute('''INSERT OR REPLACE INTO replicationcontrollers (uid, name, namespace, replicas) VALUES (?, ?, ?, ?)''',
                        (rc.obj['metadata']['uid'], rc.name, namespace, rc.obj['spec']['replicas']))
         insert_metadata(cursor, Kinds.replication_controller, rc)
                 
-def create_tables(cursor):
+def create_tables(c):
     # api tables
     c.execute('''CREATE TABLE services (uid TEXT NOT NULL PRIMARY KEY, name TEXT, namespace TEXT, ip TEXT)''')
     c.execute('''CREATE TABLE pods (uid TEXT NOT NULL PRIMARY KEY, name TEXT, namespace TEXT, host TEXT)''')
@@ -109,28 +149,15 @@ def create_tables(cursor):
     c.execute('''CREATE TABLE annotations (key TEXT, value TEXT, kind TEXT, uid TEXT)''')
     c.execute('''CREATE TABLE containers (name TEXT, image TEXT, pod_uid TEXT, restarts INTEGER)''')
 
-def handle_input(cursor):
+def handle_input(q, resp):
     try:
         query = raw_input("> ")
     except EOFError:
         return False
     if query is "q" or query is "quit":
         return False
-    try:
-        data = []
-        headers = []
-        result = c.execute(query)
-        for column in result.description:
-            headers.append(column[0])
-
-        for row in result:
-            rowData = []
-            for field in row:
-                rowData.append(field) 
-            data.append(rowData)
-        print tabulate.tabulate(data, headers, tablefmt='psql')
-    except sqlite3.OperationalError, err:
-        print err
+    q.put(query)
+    resp.get(True)
     return True
 
 api = pykube.HTTPClient(pykube.KubeConfig.from_file("/home/bburns/.kube/config"))
@@ -140,13 +167,19 @@ conn = sqlite3.connect(':memory:')
 # conn.enable_load_extension(True)
 # conn.load_extension('./json1.so')
 
-c = conn.cursor()
+q = Queue.Queue(1)
+resp = Queue.Queue(1)
 
-create_tables(c)
-load(c, api)
+t = threading.Thread(target=thread_load, args = (q, resp, api))
+t.daemon = True
+t.start()
+
 setup_history()
 
-while handle_input(c):
+while handle_input(q, resp):
     pass
 
+done = True
+q.put('_done_')
+t.join()
 print '\n'
