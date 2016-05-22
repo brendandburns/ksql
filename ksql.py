@@ -116,6 +116,7 @@ def load_namespace(cursor, api, namespace):
                         pod.obj['spec']['nodeName']))
         insert_metadata(cursor, Kinds.pod, pod)
         for ix, container in enumerate(pod.obj['spec']['containers']):
+            # TODO: handle container status not existing here.
             cursor.execute('''INSERT OR REPLACE INTO containers (name, image, pod_uid, restarts) VALUES (?, ?, ?, ?)''',
                            (container['name'],
                             container['image'],
@@ -157,7 +158,7 @@ def handle_input(q, resp):
     if query is "q" or query is "quit":
         return False
     q.put(query)
-    resp.get(True)
+    resp.get(True, 10)
     return True
 
 api = pykube.HTTPClient(pykube.KubeConfig.from_file("/home/bburns/.kube/config"))
