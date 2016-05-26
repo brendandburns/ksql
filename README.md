@@ -1,12 +1,34 @@
 # KSQL - A simple tool for interactive database queries on Kubernetes resources.
 
-# Usage
-```sh
-python ksql.py
+## Prerequisites:
+```
+npm install q
+npm install alasql
+npm install node-kubernetes-client
+npm install readline-history
+npm install cli-table2
 ```
 
-# Requirements
+## Running:
 ```
-pip install tabulate
-pip install pykube
+kubectl proxy &
+node ksql.js
+```
+
+## Example Queries:
+```sql
+select count(*) from containers where containers.image like 'mysql%'
+```
+
+
+```sql
+select count(*),image from containers where containers.image like 'mysql%' group by image
+```
+
+```sql
+select pods.metadata->name,pods.metadata->annotations->email,image from pods join containers using uid where image like 'mysql:5.5%'
+```
+
+```sql
+select pods.metadata->name,image from pods left join containers using uid where image like 'mysql%' and not pods.metadata->annotations->email
 ```
