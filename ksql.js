@@ -35,24 +35,56 @@ var findByName = function(contexts, contextName) {
     return null;
 };
 
+var clientFromURL = function(urlString) {
+    var host = url.parse(urlString);
+    
+    return new Client({
+	host: host.host,
+	protocol: host.protocol.substr(0, host.protocol.length - 1),
+	version: 'v1'
+    });
+};
+
+var promptForClient = function() {
+    var d = q.defer();
+    var rl = readline.createInterface({
+	path: "/tmp/ksql-answer",
+	input: process.stdin,
+	output: process.stdout,
+	maxLength: 10,
+	next: (rli) => {
+	    rli.setPrompt("Server URL: ");
+	    rli.prompt();
+	    rli.on('line', function(answer) {
+		d.resolve(clientFromURL(answer));
+		rli.close();
+	    });
+	},
+    });
+
+    return d.promise;
+};
+
 var connect = function() {
     var d = q.defer();
     fs.readFile(process.env.HOME + "/.kube/config", function(err, data) {
 	if (err != null) {
-	    d.reject(err);
+	    if (err.code == 'ENOENT') {
+		promptForClient().then(function(client) {
+		    d.resolve(client);
+		}).done();
+	    } else {
+		d.reject(err);
+	    }
+	    return;
 	} else {
 	    var doc = yaml.safeLoad(data);
 	    var contextName = doc["current-context"];
 	    console.log('Loading current context: "' + contextName + '"');
 	    var context = findByName(doc.contexts, contextName);
 	    var cluster = findByName(doc.clusters, context.context.cluster);
-	    var host = url.parse(cluster.cluster.server);
+	    var client = clientFromURL(cluster.cluster.server);
 
-	    client = new Client({
-		host: host.host,
-		protocol: host.protocol.substr(0, host.protocol.length - 1),
-		version: 'v1'
-	    });
 	    var user = findByName(doc.users, context.context.user);
 	    if (user && user.user.token && user.user.token != 'none') {
 		client.token = user.user.token;
@@ -276,10 +308,12 @@ var handle_static_request = function(u, res) {
     });
 };
 
-var server = http.createServer(handle_request);
+if (process.argv.length > 2 && process.argv[2] == 'www') {
+    var server = http.createServer(handle_request);
 
-server.listen(8090, function() {
-    console.log('Server running on localhost:8080');
-});
+    server.listen(8090, function() {
+	console.log('Server running on 0.0.0.0:8090');
+    });
+}
 
 
