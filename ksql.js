@@ -17,6 +17,7 @@
 var alasql = require('alasql');
 var fs = require('fs');
 var http = require('http');
+var yaml = require('js-yaml');
 var Client = require('node-kubernetes-client');
 var path = require('path');
 var q = require('q');
@@ -24,11 +25,43 @@ var readline = require('readline-history');
 var Table = require('cli-table2');
 var url = require('url');
 
-var client = new Client({
-    host:  '10.0.0.1:8080',
-    protocol: 'http',
-    version: 'v1',
-});
+
+var findByName = function(contexts, contextName) {
+    for (var i = 0; i < contexts.length; i++) {
+	if (contexts[i].name == contextName) {
+	    return contexts[i];
+	}
+    }
+    return null;
+};
+
+var connect = function() {
+    var d = q.defer();
+    fs.readFile(process.env.HOME + "/.kube/config", function(err, data) {
+	if (err != null) {
+	    d.reject(err);
+	} else {
+	    var doc = yaml.safeLoad(data);
+	    var contextName = doc["current-context"];
+	    console.log('Loading current context: "' + contextName + '"');
+	    var context = findByName(doc.contexts, contextName);
+	    var cluster = findByName(doc.clusters, context.context.cluster);
+	    var host = url.parse(cluster.cluster.server);
+
+	    client = new Client({
+		host: host.host,
+		protocol: host.protocol.substr(0, host.protocol.length - 1),
+		version: 'v1'
+	    });
+	    var user = findByName(doc.users, context.context.user);
+	    if (user && user.user.token && user.user.token != 'none') {
+		client.token = user.user.token;
+	    }
+	    d.resolve(client);
+	}
+    });
+    return d.promise;
+};
 
 var mybase = new alasql.Database('mybase');
 
@@ -88,9 +121,13 @@ var handle_next = function(rli) {
     });
 };
 
-var load_pods = function() {
+var load_pods = function(client) {
     var defer = q.defer();
     client.pods.get(function (err, pods) {
+	if (err != null) {
+	    defer.reject(err);
+	    return;
+	}
 	var containers = [];
 	for (var i = 0; i < pods[0].items.length; i++) {
 	    var pod = pods[0].items[i];
@@ -114,11 +151,15 @@ var load_pods = function() {
 	defer.resolve();
     });
     return defer.promise;
-}
+};
 
 var generic_load = function(fn, db) {
     var defer = q.defer();
     fn(function(err, result) {
+	if (err != null) {
+	    defer.reject(err);
+	    return;
+	}
 	for (var i = 0; i < result[0].items.length; i++) {
 	    var res = result[0].items[i];
 	    res.uid = res.metadata.uid;
@@ -130,34 +171,40 @@ var generic_load = function(fn, db) {
     return defer.promise;
 };
 
-var load_services = function() {
+var load_services = function(client) {
     return generic_load(client.services.get, alasql.databases.mybase.tables.services);
 };
 
-var load_nodes = function() {
+var load_nodes = function(client) {
     return generic_load(client.nodes.get, alasql.databases.mybase.tables.nodes);
 };
 
-var load = function () {
+var load = function (client) {
     return q.all([
-	load_pods(),
-	load_nodes(),
-	load_services()
+	load_pods(client),
+	load_nodes(client),
+	load_services(client)
     ])
 };
 
 create_tables(mybase);
 
-load().then(function() {
-    var rl = readline.createInterface({
-	path: "/tmp/ksql-history",
-	input: process.stdin,
-	output: process.stdout,
-	maxLength: 100,
-	next: handle_next
-    });
-    setTimeout(load, 10000);
-});
+connect().then(
+    function(client) {
+	return load(client);
+    }
+).then(
+    function() {
+	var rl = readline.createInterface({
+	    path: "/tmp/ksql-history",
+	    input: process.stdin,
+	    output: process.stdout,
+	    maxLength: 100,
+	    next: handle_next
+	});
+	setTimeout(load, 10000);
+    }
+).done();
 
 var handle_request = function(req, res) {
     var u = url.parse(req.url, true);
