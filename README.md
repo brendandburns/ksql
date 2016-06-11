@@ -7,6 +7,7 @@ npm install alasql
 npm install node-kubernetes-client
 npm install readline-history
 npm install cli-table2
+npm install js-yaml
 ```
 
 ## Running:

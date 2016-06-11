@@ -221,8 +221,11 @@ var load = function (client) {
 
 create_tables(mybase);
 
+var client = null;
+
 connect().then(
-    function(client) {
+    function(cl) {
+	client = cl;
 	return load(client);
     }
 ).then(
@@ -234,7 +237,7 @@ connect().then(
 	    maxLength: 100,
 	    next: handle_next
 	});
-	setTimeout(load, 10000);
+	setTimeout(function() { load(client); }, 10000);
     }
 ).done();
 
