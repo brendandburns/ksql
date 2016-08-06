@@ -1,0 +1,9 @@
+{
+  "name": "ksql",
+  "version": "0.1.0",
+  "dependencies": {
+    "install": "^0.8.1",
+    "npm": "^3.10.5",
+    "q": "^1.4.1"
+  }
+}
