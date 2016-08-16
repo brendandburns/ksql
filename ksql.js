@@ -251,8 +251,8 @@ var client = null;
 
 connect().then(
     function(cl) {
-	client = cl;
-	return load(client);
+  client = cl;
+  return load(client);
     }
 ).then(
   function() {
@@ -263,7 +263,7 @@ connect().then(
       maxLength: 100,
       next: handle_next
     });
-	  setTimeout(function() { load(client); }, 10000);
+    setTimeout(function() { load(client); }, 10000);
   }
 ).done();
 
@@ -301,7 +301,7 @@ var handle_api_request = function(req, res, u) {
 var handle_static_request = function(u, res) {
   var fp = '.' + u.pathname;
   if (fp == './' || fp == '.') {
-	  fp = './index.html';
+    fp = './index.html';
   }
   if (fp.indexOf('..') != -1) {
     res.statusCode = 400;
@@ -341,7 +341,7 @@ if (process.argv.length > 2 && process.argv[2] == 'www') {
   var server = http.createServer(handle_request);
 
   server.listen(8090, function() {
-	  console.log('Server running on 0.0.0.0:8090');
+    console.log('Server running on 0.0.0.0:8090');
   });
 }
 
