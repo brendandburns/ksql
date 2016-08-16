@@ -35,14 +35,28 @@ var findByName = function(contexts, contextName) {
   return null;
 };
 
-var clientFromURL = function(urlString) {
+var clientFromURL = function(urlString, x509) {
   var host = url.parse(urlString);
 
-  return new Client({
-    host: host.host,
-    protocol: host.protocol.substr(0, host.protocol.length - 1),
-    version: 'v1'
-  });
+  if (host.protocol == 'https:') {
+    if ((!x509.cert) || (!x509.key)) {
+      throw TypeError('you must provide a client certificate and key if you use https transport')
+    }
+    return new Client({
+      host: host.host,
+      protocol: host.protocol.substr(0, host.protocol.length - 1),
+      ca: x509.ca,
+      cert: x509.cert,
+      key: x509.key,
+      version: 'v1'
+    });
+  } else {
+    return new Client({
+      host: host.host,
+      protocol: host.protocol.substr(0, host.protocol.length - 1),
+      version: 'v1'
+    });
+  }
 };
 
 var promptForClient = function() {
@@ -83,7 +97,18 @@ var connect = function() {
       console.log('Loading current context: "' + contextName + '"');
       var context = findByName(doc.contexts, contextName);
       var cluster = findByName(doc.clusters, context.context.cluster);
-      var client = clientFromURL(cluster.cluster.server);
+
+      var auth = findByName(doc.users, context.context.cluster);
+      var x509 = {};
+      if (auth) {
+        x509 = {
+          ca: Buffer.from(cluster['cluster']['certificate-authority-data'], 'base64'),
+          cert: Buffer.from(auth['user']['client-certificate-data'], 'base64'),
+          key: Buffer.from(auth['user']['client-key-data'], 'base64')
+        };
+      }
+
+      var client = clientFromURL(cluster.cluster.server, x509);
 
       var user = findByName(doc.users, context.context.user);
       if (user && user.user.token && user.user.token != 'none') {
