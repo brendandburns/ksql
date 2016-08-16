@@ -2,8 +2,13 @@
   "name": "ksql",
   "version": "0.1.0",
   "dependencies": {
+    "alasql": "^0.3.1",
+    "cli-table2": "^0.2.0",
     "install": "^0.8.1",
+    "js-yaml": "^3.6.1",
+    "node-kubernetes-client": "^0.2.3",
     "npm": "^3.10.5",
-    "q": "^1.4.1"
+    "q": "^1.4.1",
+    "readline-history": "^1.2.0"
   }
 }
