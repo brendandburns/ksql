@@ -21,9 +21,14 @@ var yaml = require('js-yaml');
 var Client = require('node-kubernetes-client');
 var path = require('path');
 var q = require('q');
-var readline = require('readline-history');
 var Table = require('cli-table2');
 var url = require('url');
+
+if (process.stdout.isTTY) {
+  var readline = require('readline-history');
+} else {
+  var readline = require('readline');
+}
 
 
 var findByName = function(contexts, contextName) {
@@ -148,29 +153,33 @@ var process_result = function(res) {
   };
 };
 
+var handle_line = function (line) {
+  if (line && line.length != 0) {
+    try {
+      var res = mybase.exec(line);
+      if (res.length == 0) {
+        console.log("[]");
+      } else {
+        var data = process_result(res);
+        var tbl = new Table({
+          head: data.headers
+        });
+        for (var i = 0; i < data.data.length; i++) {
+          tbl.push(data.data[i]);
+        }
+        console.log(tbl.toString());
+      }
+    } catch (ex) {
+      console.log(ex);
+    }
+  }
+};
+
 var handle_next = function(rli) {
   rli.setPrompt('> ');
   rli.prompt();
   rli.on('line', function(line) {
-    if (line && line.length != 0) {
-      try {
-        var res = mybase.exec(line);
-        if (res.length == 0) {
-          console.log("[]");
-        } else {
-          var data = process_result(res);
-          var tbl = new Table({
-            head: data.headers
-          });
-          for (var i = 0; i < data.data.length; i++) {
-            tbl.push(data.data[i]);
-          }
-          console.log(tbl.toString());
-        }
-      } catch (ex) {
-        console.log(ex);
-      }
-    }
+    handle_line(line);
     rli.prompt();
   }).on('close', function() {
     console.log('shutting down.');
@@ -250,10 +259,10 @@ create_tables(mybase);
 var client = null;
 
 connect().then(
-    function(cl) {
-  client = cl;
-  return load(client);
-    }
+  function(cl) {
+    client = cl;
+    return load(client);
+  }
 ).then(
   function() {
     var rl = readline.createInterface({
@@ -263,7 +272,13 @@ connect().then(
       maxLength: 100,
       next: handle_next
     });
-    setTimeout(function() { load(client); }, 10000);
+    if (!process.stdout.isTTY) {
+      rl.on('line', function (line) {
+        handle_line(line);
+      });
+    } else {
+      setTimeout(function() { load(client); }, 10000);
+    }
   }
 ).done();
 
