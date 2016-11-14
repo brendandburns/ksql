@@ -103,7 +103,7 @@ var connect = function() {
       var context = findByName(doc.contexts, contextName);
       var cluster = findByName(doc.clusters, context.context.cluster);
 
-      var auth = findByName(doc.users, context.context.cluster);
+      var auth = findByName(doc.users, context.context.user);
       var x509 = {};
       if (auth) {
         x509 = {
