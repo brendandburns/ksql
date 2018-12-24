@@ -131,6 +131,7 @@ var create_tables = function(db) {
   db.exec('CREATE TABLE pods (uid TEXT, node TEXT, metadata Object, spec Object, status Object)');
   db.exec('CREATE TABLE nodes (name TEXT, uid TEXT, metadata Object, spec Object, status TXT)');
   db.exec('CREATE TABLE services (name TEXT, uid TEXT, metadata Object, spec Object, status Object)');
+  db.exec('CREATE TABLE namespaces (name TEXT, uid TEXT)');
   db.exec('CREATE TABLE containers (image TEXT, uid TEXT, restarts INT)');
 };
 
@@ -242,6 +243,10 @@ var load_services = function(client) {
   return generic_load(client.services.get, alasql.databases.mybase.tables.services);
 };
 
+var load_namespaces = function (client) {
+  return generic_load(client.namespaces.get, alasql.databases.mybase.tables.namespaces);
+}
+
 var load_nodes = function(client) {
   var defer = q.defer();
   client.nodes.get(function (err, nodes) {
@@ -271,7 +276,8 @@ var load = function (client) {
   return q.all([
     load_pods(client),
     load_nodes(client),
-    load_services(client)
+    load_services(client),
+    load_namespaces(client)
   ])
 };
 
