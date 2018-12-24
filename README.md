@@ -15,6 +15,11 @@ npm install js-yaml
 kubectl proxy &
 node ksql.js
 ```
+## Running via Docker:
+```
+docker build -t ksql
+docker run --rm -ti -v ${HOME}/.kube:/root/.kube:ro ksql
+```
 
 ## Example Queries:
 ```sql
