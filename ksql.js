@@ -129,7 +129,7 @@ var mybase = new alasql.Database('mybase');
 
 var create_tables = function(db) {
   db.exec('CREATE TABLE pods (uid TEXT, node TEXT, metadata Object, spec Object, status Object)');
-  db.exec('CREATE TABLE nodes (name TEXT, uid TEXT, metadata Object, spec Object, status Object)');
+  db.exec('CREATE TABLE nodes (name TEXT, uid TEXT, metadata Object, spec Object, status TXT)');
   db.exec('CREATE TABLE services (name TEXT, uid TEXT, metadata Object, spec Object, status Object)');
   db.exec('CREATE TABLE containers (image TEXT, uid TEXT, restarts INT)');
 };
@@ -243,7 +243,28 @@ var load_services = function(client) {
 };
 
 var load_nodes = function(client) {
-  return generic_load(client.nodes.get, alasql.databases.mybase.tables.nodes);
+  var defer = q.defer();
+  client.nodes.get(function (err, nodes) {
+    if (err != null) {
+      defer.reject(err);
+      return;
+    }
+    for (var i = 0; i < nodes[0].items.length; i++) {
+      var node = nodes[0].items[i];
+      node.uid = node.metadata.uid;
+      node.name = node.metadata.name;
+      for (var j = 0; j < node.status.conditions.length; j++) {
+        if (node.status.conditions[j].status == "True") {
+          node.status = node.status.conditions[j].type
+          break;
+        }
+      }
+    }
+    alasql.databases.mybase.tables.nodes.data = nodes[0].items;
+    defer.resolve();
+  });
+
+  return defer.promise;
 };
 
 var load = function (client) {
